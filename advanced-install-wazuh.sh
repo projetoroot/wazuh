@@ -10,19 +10,15 @@
 echo "==========================================================="
 echo "Instalacao automatica Wazuh (all-in-one) avançada "
 echo "Debian 13"
+echo "Log: $LOG"
 echo "==========================================================="
+
 set -e
 
-LOGFILE="/var/log/wazuh-install.log"
+LOG="/var/log/wazuh-soc-install.log"
 WAZUH_VERSION="4.14"
 
-exec > >(tee -a $LOGFILE) 2>&1
-
-echo "======================================"
-echo "Instalacao automatica Wazuh"
-echo "Debian 13"
-echo "Log: $LOGFILE"
-echo "======================================"
+exec > >(tee -a $LOG) 2>&1
 
 if [ "$EUID" -ne 0 ]; then
     echo "Execute como root"
@@ -30,37 +26,41 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 if [ -d "/var/ossec" ]; then
-    echo "Wazuh ja instalado em /var/ossec"
+    echo "Wazuh ja instalado"
     exit 1
 fi
 
 echo
-echo "[1] Verificando requisitos do sistema"
+echo "[1] Detectando sistema"
 
-RAM=$(free -g | awk '/Mem:/ {print $2}')
+OS=$(grep '^ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
+VERSION=$(grep '^VERSION_ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
+
+echo "Sistema: $OS $VERSION"
+
+echo
+echo "[2] Verificando recursos"
+
+RAM_MB=$(free -m | awk '/Mem:/ {print $2}')
+RAM_GB=$((RAM_MB/1024))
 CPU=$(nproc)
 
-if [ "$RAM" -lt 4 ]; then
-    echo "Aviso: recomendado minimo 4GB RAM"
+echo "CPU: $CPU cores"
+echo "RAM: ${RAM_GB}GB"
+
+echo
+echo "[3] Ajustando heap OpenSearch"
+
+HEAP=$((RAM_MB/2))
+
+if [ "$HEAP" -gt 4096 ]; then
+    HEAP=4096
 fi
 
-echo "CPU cores: $CPU"
-echo "RAM: ${RAM}GB"
+echo "Heap definido: ${HEAP}MB"
 
 echo
-echo "[2] Verificando portas utilizadas"
-
-PORTS=(1514 1515 55000 9200 5601)
-
-for PORT in "${PORTS[@]}"; do
-    if ss -lnt | grep -q ":$PORT "; then
-        echo "Porta $PORT ja esta em uso"
-        exit 1
-    fi
-done
-
-echo
-echo "[3] Ajustando parametros do kernel"
+echo "[4] Ajuste kernel necessário para OpenSearch"
 
 sysctl -w vm.max_map_count=262144
 
@@ -69,19 +69,31 @@ if ! grep -q vm.max_map_count /etc/sysctl.conf; then
 fi
 
 echo
-echo "[4] Instalando dependencias"
+echo "[5] Instalando dependencias"
 
 apt update
-apt install -y curl tar gnupg apt-transport-https lsb-release jq
+
+apt install -y \
+curl \
+tar \
+gnupg \
+apt-transport-https \
+lsb-release \
+jq \
+chrony
+
+systemctl enable chrony
+systemctl start chrony
 
 echo
-echo "[5] Baixando instalador oficial"
+echo "[6] Baixando instalador oficial"
 
 curl -sO https://packages.wazuh.com/$WAZUH_VERSION/wazuh-install.sh
+
 chmod +x wazuh-install.sh
 
 echo
-echo "[6] Criando configuracao da stack"
+echo "[7] Criando config da stack"
 
 cat <<EOF > config.yml
 nodes:
@@ -99,44 +111,106 @@ nodes:
 EOF
 
 echo
-echo "[7] Gerando certificados"
+echo "[8] Gerando certificados"
 
 ./wazuh-install.sh --generate-config-files
 
 echo
-echo "[8] Instalando Wazuh Indexer"
+echo "[9] Instalando Indexer"
 
 ./wazuh-install.sh --wazuh-indexer node-1
 
 echo
-echo "[9] Instalando Wazuh Manager"
+echo "[10] Ajustando heap"
+
+sed -i "s/^-Xms.*/-Xms${HEAP}m/" /etc/wazuh-indexer/jvm.options
+sed -i "s/^-Xmx.*/-Xmx${HEAP}m/" /etc/wazuh-indexer/jvm.options
+
+echo
+echo "[11] Otimizando shards"
+
+cat >> /etc/wazuh-indexer/opensearch.yml <<EOF
+
+cluster.max_shards_per_node: 1000
+indices.query.bool.max_clause_count: 8192
+EOF
+
+echo
+echo "[12] Inicializando cluster"
+
+./wazuh-install.sh --start-cluster
+
+echo
+echo "[13] Instalando Manager"
 
 ./wazuh-install.sh --wazuh-server wazuh-1
 
 echo
-echo "[10] Instalando Wazuh Dashboard"
+echo "[14] Instalando Dashboard"
 
 ./wazuh-install.sh --wazuh-dashboard dashboard
+
+echo
+echo "[15] Ajustando limite de arquivos"
+
+cat >> /etc/security/limits.conf <<EOF
+
+wazuh soft nofile 65536
+wazuh hard nofile 65536
+EOF
+
+echo
+echo "[16] Rotacao de logs"
+
+cat <<EOF > /etc/logrotate.d/wazuh
+
+/var/ossec/logs/*.log {
+    daily
+    rotate 14
+    compress
+    missingok
+    notifempty
+    copytruncate
+}
+EOF
+
+echo
+echo "[17] Ativando servicos"
+
+systemctl enable wazuh-indexer
+systemctl enable wazuh-manager
+systemctl enable wazuh-dashboard
+
+systemctl restart wazuh-indexer
+systemctl restart wazuh-manager
+systemctl restart wazuh-dashboard
 
 IP=$(hostname -I | awk '{print $1}')
 
 echo
-echo "======================================"
+echo "======================================="
 echo "INSTALACAO FINALIZADA"
-echo "======================================"
+echo "======================================="
 
 echo
 echo "Dashboard:"
 echo "https://$IP"
+echo
+
+echo "Diretorio do manager:"
+echo "/var/ossec"
 
 echo
-echo "Servicos instalados:"
-echo "systemctl status wazuh-manager"
-echo "systemctl status wazuh-indexer"
-echo "systemctl status wazuh-dashboard"
-
+echo "Log completo:"
+echo "$LOG"
 echo
-echo "Logs da instalacao:"
-echo "$LOGFILE"
+
+echo "Credenciais do Wazuh:"
+echo
+
+if [ -f wazuh-install-files/wazuh-passwords.txt ]; then
+    cat wazuh-install-files/wazuh-passwords.txt
+fi
+
 
 echo
