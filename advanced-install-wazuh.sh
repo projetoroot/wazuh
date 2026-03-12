@@ -40,32 +40,38 @@ echo "Sistema: $OS $VERSION"
 echo
 echo "[2] Verificando recursos"
 
-RAM_MB=$(free -m | awk '/Mem:/ {print $2}')
-RAM_GB=$((RAM_MB/1024))
-CPU=$(nproc)
+CPU_CORES=$(nproc)
 
-echo "CPU: $CPU cores"
+RAM_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+RAM_GB=$((RAM_MB / 1024))
+
+echo "CPU: $CPU_CORES cores"
 echo "RAM: ${RAM_GB}GB"
 
 echo
 echo "[3] Ajustando heap OpenSearch"
 
-HEAP=$((RAM_MB/2))
-
-if [ "$HEAP" -gt 4096 ]; then
-    HEAP=4096
+if [ "$RAM_MB" -le 4096 ]; then
+    HEAP_MB=1024
+elif [ "$RAM_MB" -le 8192 ]; then
+    HEAP_MB=2048
+else
+    HEAP_MB=$((RAM_MB / 2))
 fi
 
-echo "Heap definido: ${HEAP}MB"
-
+echo "Heap definido: ${HEAP_MB}MB"
 echo
 echo "[4] Ajuste kernel necessário para OpenSearch"
 
-sysctl -w vm.max_map_count=262144
+SYSCTL_FILE="/etc/sysctl.conf"
 
-if ! grep -q vm.max_map_count /etc/sysctl.conf; then
-    echo "vm.max_map_count=262144" >> /etc/sysctl.conf
+touch $SYSCTL_FILE
+
+if ! grep -q vm.max_map_count $SYSCTL_FILE; then
+    echo "vm.max_map_count=262144" >> $SYSCTL_FILE
 fi
+
+sysctl -w vm.max_map_count=262144
 
 echo
 echo "[5] Instalando dependencias"
