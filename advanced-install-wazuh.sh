@@ -174,8 +174,26 @@ cat <<EOF > /etc/logrotate.d/wazuh
 }
 EOF
 
+echo "[17] Aplicando regra customizada para falso positivo rootcheck"
 echo
-echo "[17] Ativando servicos"
+RULE_FILE="/var/ossec/etc/rules/local_rules.xml"
+
+if ! grep -q "100100" $RULE_FILE; then
+
+cat <<EOF >> $RULE_FILE
+
+<rule id="100100" level="0">
+  <if_group>rootcheck</if_group>
+  <match>/dev/.blkid.tab</match>
+  <description>Ignore false positive for /dev/.blkid.tab</description>
+</rule>
+
+EOF
+
+fi
+
+echo
+echo "[18] Ativando servicos"
 
 systemctl enable wazuh-indexer
 systemctl enable wazuh-manager
@@ -184,6 +202,7 @@ systemctl enable wazuh-dashboard
 systemctl restart wazuh-indexer
 systemctl restart wazuh-manager
 systemctl restart wazuh-dashboard
+
 
 IP=$(hostname -I | awk '{print $1}')
 
