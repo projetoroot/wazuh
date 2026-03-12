@@ -6,6 +6,8 @@
 # Veja o link: https://wiki.projetoroot.com.br
 # 2026
 ###############################################################################
+set -e
+LOG="/var/log/wazuh-soc-install.log"
 
 echo "==========================================================="
 echo "Instalacao automatica Wazuh (all-in-one) avançada "
@@ -13,9 +15,6 @@ echo "Debian 13"
 echo "Log: $LOG"
 echo "==========================================================="
 
-set -e
-
-LOG="/var/log/wazuh-soc-install.log"
 WAZUH_VERSION="4.14"
 
 exec > >(tee -a $LOG) 2>&1
@@ -195,8 +194,39 @@ EOF
 
 fi
 
+
 echo
-echo "[18] Ativando servicos"
+echo "[18] Ajustando heap da JVM do Wazuh Indexer"
+
+JVM_FILE="/etc/wazuh-indexer/jvm.options"
+
+TOTAL_RAM_MB=$(free -m | awk '/Mem:/ {print $2}')
+
+if [ "$TOTAL_RAM_MB" -le 4096 ]; then
+    HEAP="1g"
+elif [ "$TOTAL_RAM_MB" -le 8192 ]; then
+    HEAP="2g"
+else
+    HEAP="$((TOTAL_RAM_MB / 2 / 1024))g"
+fi
+
+sed -i 's/^-Xms.*/-Xms'"$HEAP"'/' $JVM_FILE
+sed -i 's/^-Xmx.*/-Xmx'"$HEAP"'/' $JVM_FILE
+
+echo "Heap configurado para: $HEAP"
+
+
+echo
+echo "[19] Ajustando vm.max_map_count"
+
+if ! grep -q vm.max_map_count /etc/sysctl.conf; then
+    echo "vm.max_map_count=262144" >> /etc/sysctl.conf
+fi
+
+sysctl -w vm.max_map_count=262144 >/dev/null
+
+echo
+echo "[20] Ativando servicos"
 
 systemctl enable wazuh-indexer
 systemctl enable wazuh-manager
