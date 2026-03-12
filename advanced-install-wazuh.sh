@@ -206,8 +206,16 @@ echo "[18] Ajustando heap da JVM do Wazuh Indexer"
 
 JVM_FILE="/etc/wazuh-indexer/jvm.options"
 
-TOTAL_RAM_MB=$(free -m | awk '/Mem:/ {print $2}')
+# Detectar RAM real do sistema
+TOTAL_RAM_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
 
+# Validação
+if [ -z "$TOTAL_RAM_MB" ]; then
+    echo "Erro: não foi possível detectar memória do sistema"
+    TOTAL_RAM_MB=2048
+fi
+
+# Cálculo do heap
 if [ "$TOTAL_RAM_MB" -le 4096 ]; then
     HEAP="1g"
 elif [ "$TOTAL_RAM_MB" -le 8192 ]; then
@@ -216,11 +224,12 @@ else
     HEAP="$((TOTAL_RAM_MB / 2 / 1024))g"
 fi
 
-sed -i 's/^-Xms.*/-Xms'"$HEAP"'/' $JVM_FILE
-sed -i 's/^-Xmx.*/-Xmx'"$HEAP"'/' $JVM_FILE
-
+echo "RAM detectada: ${TOTAL_RAM_MB}MB"
 echo "Heap configurado para: $HEAP"
 
+# Aplicar no jvm.options
+sed -i 's/^-Xms.*/-Xms'"$HEAP"'/' "$JVM_FILE"
+sed -i 's/^-Xmx.*/-Xmx'"$HEAP"'/' "$JVM_FILE"
 
 echo
 echo "[19] Ajustando vm.max_map_count"
