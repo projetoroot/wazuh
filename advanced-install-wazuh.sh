@@ -178,15 +178,18 @@ echo "[17] Aplicando regra customizada para falso positivo rootcheck"
 echo
 RULE_FILE="/var/ossec/etc/rules/local_rules.xml"
 
-if ! grep -q "100100" $RULE_FILE; then
+if ! grep -q "100100" "$RULE_FILE"; then
 
-cat <<EOF >> $RULE_FILE
+cat <<EOF >> "$RULE_FILE"
 
-<rule id="100100" level="0">
-  <if_group>rootcheck</if_group>
-  <match>/dev/.blkid.tab</match>
-  <description>Ignore false positive for /dev/.blkid.tab</description>
-</rule>
+<group name="rootcheck_ignore,">
+  <rule id="100100" level="0">
+    <if_group>rootcheck</if_group>
+    <match>/dev/.blkid.tab</match>
+    <description>Ignore false positive for /dev/.blkid.tab</description>
+  </rule>
+
+</group>
 
 EOF
 
