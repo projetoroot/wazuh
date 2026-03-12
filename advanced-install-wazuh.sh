@@ -275,8 +275,15 @@ echo
 echo "Credenciais do Wazuh:"
 echo
 
-if [ -f wazuh-install-files/wazuh-passwords.txt ]; then
-    cat wazuh-install-files/wazuh-passwords.txt
+TAR_FILE=$(find / -name wazuh-install-files.tar 2>/dev/null | head -1)
+
+if [ -f "$TAR_FILE" ]; then
+    USER=$(tar -xOf "$TAR_FILE" wazuh-install-files/wazuh-passwords.txt 2>/dev/null | awk -F"'" '/indexer_username/ {print $2; exit}')
+    PASS=$(tar -xOf "$TAR_FILE" wazuh-install-files/wazuh-passwords.txt 2>/dev/null | awk -F"'" '/indexer_password/ {print $2; exit}')
+
+    echo
+    echo "Usuário: $USER"
+    echo "Senha: $PASS"
 fi
 
 
