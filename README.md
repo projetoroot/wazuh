@@ -218,8 +218,7 @@ Diretamente do arquivo gerado pelo instalador do Wazuh.
 
 ```bash
 wget https://raw.githubusercontent.com/projetoroot/wazuh/refs/heads/main/advanced-install-wazuh.sh
-chmod +x install-wazuh.sh
-sudo ./install-wazuh.sh
+bash advanced-install-wazuh.sh
 ```
 
 ---
