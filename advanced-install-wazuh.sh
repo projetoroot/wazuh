@@ -79,6 +79,7 @@ echo "[5] Instalando dependencias"
 apt update
 
 apt install -y \
+sudo \
 curl \
 tar \
 gnupg \
